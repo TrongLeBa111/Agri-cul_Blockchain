@@ -1,0 +1,9 @@
+price_id,commodity,price_date,region,country,price_usd_per_kg,currency,unit,source,is_imputed,ingested_at
+demo_wb_rice_2026_06_01_global,rice,2026-06-01,global,global,0.720000,USD,kg,WORLD_BANK,false,2026-06-24T07:00:00Z
+demo_wb_coffee_2026_06_01_global,coffee,2026-06-01,global,global,5.840000,USD,kg,WORLD_BANK,false,2026-06-24T07:00:00Z
+demo_wb_cocoa_2026_06_01_global,cocoa,2026-06-01,global,global,9.120000,USD,kg,WORLD_BANK,false,2026-06-24T07:00:00Z
+demo_wb_cotton_2026_06_01_global,cotton,2026-06-01,global,global,1.780000,USD,kg,WORLD_BANK,false,2026-06-24T07:00:00Z
+demo_yf_rice_2026_06_21_us_futures,rice,2026-06-21,us_futures,United States,0.698000,USD,kg,YAHOO_FINANCE,true,2026-06-24T07:00:00Z
+demo_yf_coffee_2026_06_21_us_futures,coffee,2026-06-21,us_futures,United States,5.910000,USD,kg,YAHOO_FINANCE,true,2026-06-24T07:00:00Z
+demo_yf_cocoa_2026_06_21_us_futures,cocoa,2026-06-21,us_futures,United States,9.340000,USD,kg,YAHOO_FINANCE,true,2026-06-24T07:00:00Z
+demo_yf_cotton_2026_06_21_us_futures,cotton,2026-06-21,us_futures,United States,1.810000,USD,kg,YAHOO_FINANCE,true,2026-06-24T07:00:00Z
