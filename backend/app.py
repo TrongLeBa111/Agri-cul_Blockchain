@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from backend.blockchain_service import BlockchainService, proof_to_dict
 from backend.hashing import data_hash, fingerprint, load_price_records, qr_payload
 from backend.local_chain import LocalProofLedger
 
@@ -29,15 +29,21 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
         return self.server.records
 
     @property
-    def ledger(self) -> LocalProofLedger:
-        return self.server.ledger
+    def blockchain(self) -> BlockchainService:
+        return self.server.blockchain
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path_parts = [part for part in parsed.path.split("/") if part]
 
         if parsed.path == "/api/prices":
-            return self._json(list(self.records.values()))
+            return self._json(self._filter_records(parse_qs(parsed.query)))
+
+        if parsed.path == "/api/transactions":
+            return self._json(self.blockchain.get_transactions())
+
+        if parsed.path == "/api/stats":
+            return self._stats()
 
         if len(path_parts) == 3 and path_parts[:2] == ["api", "prices"]:
             return self._price_detail(path_parts[2])
@@ -74,14 +80,14 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
         if not record:
             return self._json({"error": "Price record not found"}, status=404)
 
-        proof = self.ledger.get_price_record_proof(record_id)
+        proof = self.blockchain.get_price_record_proof(record_id)
         hash_value = data_hash(record)
         body = {
             **record,
             "data_hash": hash_value,
             "fingerprint": fingerprint(hash_value),
             "blockchain_status": "ANCHORED" if proof else "NOT_ANCHORED",
-            "proof": asdict(proof) if proof else None,
+            "proof": proof_to_dict(proof),
         }
         return self._json(body)
 
@@ -91,7 +97,7 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
             return self._json({"error": "Price record not found"}, status=404)
 
         hash_value = data_hash(record)
-        proof = self.ledger.anchor_price_record(
+        proof = self.blockchain.anchor_price_record(
             record_id=record_id,
             data_hash=hash_value,
             source=record["source"],
@@ -104,7 +110,8 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
                 "fingerprint": fingerprint(hash_value),
                 "transaction_hash": proof.tx_hash,
                 "blockchain_status": "ANCHORED",
-                "proof": asdict(proof),
+                "proof": proof_to_dict(proof),
+                "blockchain_backend": self.blockchain.status(),
             }
         )
 
@@ -113,10 +120,10 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
         if not record:
             return self._json({"error": "Price record not found"}, status=404)
 
-        proof = self.ledger.get_price_record_proof(record_id)
+        proof = self.blockchain.get_price_record_proof(record_id)
         current_hash = data_hash(record)
         stored_hash = proof.data_hash if proof else None
-        verified = bool(stored_hash and stored_hash.lower() == current_hash.lower())
+        verified = self.blockchain.verify_price_record(record_id, current_hash) if proof else False
         return self._json(
             {
                 "id": record_id,
@@ -125,7 +132,8 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
                 "fingerprint": fingerprint(current_hash),
                 "verified": verified,
                 "blockchain_status": "VERIFIED" if verified else "NOT_ANCHORED" if proof is None else "TAMPERED",
-                "proof": asdict(proof) if proof else None,
+                "proof": proof_to_dict(proof),
+                "blockchain_backend": self.blockchain.status(),
             }
         )
 
@@ -138,7 +146,7 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
     def _lifecycle(self, record_id: str) -> None:
         if record_id not in self.records:
             return self._json({"error": "Price record not found"}, status=404)
-        return self._json([asdict(event) for event in self.ledger.get_lifecycle_events(record_id)])
+        return self._json([event.__dict__ for event in self.blockchain.get_lifecycle_events(record_id)])
 
     def _add_lifecycle(self, record_id: str) -> None:
         if record_id not in self.records:
@@ -158,26 +166,29 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
         event_hash = "0x" + hashlib.sha256(
             json.dumps(event_body, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("utf-8")
         ).hexdigest()
-        event = self.ledger.add_lifecycle_event(
-            record_id=record_id,
-            event_type=event_type,
-            event_hash=event_hash,
-            metadata_uri=metadata_uri,
-            created_by=DEFAULT_CREATOR,
-        )
-        return self._json({"event": asdict(event)})
+        try:
+            event = self.blockchain.add_lifecycle_event(
+                record_id=record_id,
+                event_type=event_type,
+                event_hash=event_hash,
+                metadata_uri=metadata_uri,
+                created_by=DEFAULT_CREATOR,
+            )
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, status=409)
+        return self._json({"event": event.__dict__, "blockchain_backend": self.blockchain.status()})
 
     def _verify_page(self, record_id: str) -> None:
         record = self.records.get(record_id)
         if not record:
             return self._html("<h1>Price record not found</h1>", status=404)
 
-        proof = self.ledger.get_price_record_proof(record_id)
+        proof = self.blockchain.get_price_record_proof(record_id)
         current_hash = data_hash(record)
-        verified = bool(proof and proof.data_hash.lower() == current_hash.lower())
+        verified = self.blockchain.verify_price_record(record_id, current_hash) if proof else False
         status = "VERIFIED" if verified else "NOT ANCHORED" if proof is None else "TAMPERED"
         tx_hash = proof.tx_hash if proof else "N/A"
-        lifecycle_count = len(self.ledger.get_lifecycle_events(record_id))
+        lifecycle_count = len(self.blockchain.get_lifecycle_events(record_id))
         html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -205,6 +216,39 @@ class AgriPriceHandler(BaseHTTPRequestHandler):
 </body>
 </html>"""
         return self._html(html)
+
+    def _filter_records(self, query: dict[str, list[str]]) -> list[dict[str, str]]:
+        filters = {
+            key: values[0].strip().lower()
+            for key, values in query.items()
+            if key in {"commodity", "source", "region"} and values and values[0].strip()
+        }
+        records = list(self.records.values())
+        for key, value in filters.items():
+            records = [record for record in records if value in record.get(key, "").lower()]
+        return records
+
+    def _stats(self) -> None:
+        proofs = {
+            record_id: self.blockchain.get_price_record_proof(record_id)
+            for record_id in self.records
+        }
+        total_records = len(self.records)
+        total_anchored = sum(1 for proof in proofs.values() if proof)
+        total_verified = sum(
+            1
+            for record_id, proof in proofs.items()
+            if proof and self.blockchain.verify_price_record(record_id, data_hash(self.records[record_id]))
+        )
+        return self._json(
+            {
+                "total_records": total_records,
+                "total_anchored": total_anchored,
+                "total_verified": total_verified,
+                "total_unanchored": total_records - total_anchored,
+                "blockchain_backend": self.blockchain.status(),
+            }
+        )
 
     def _read_json_body(self) -> dict[str, object]:
         length = int(self.headers.get("Content-Length", 0))
@@ -238,15 +282,16 @@ class AgriPriceServer(ThreadingHTTPServer):
         super().__init__(server_address, AgriPriceHandler)
         self.records = load_records()
         self.ledger = LocalProofLedger(LEDGER_PATH)
+        self.blockchain = BlockchainService(self.ledger)
 
 
 def run(host: str = "127.0.0.1", port: int = 8000) -> None:
     server = AgriPriceServer((host, port))
     print(f"Agri Price Blockchain API running at http://{host}:{port}")
     print(f"Loaded {len(server.records)} price records from {SEED_PATH}")
+    print(f"Blockchain backend: {server.blockchain.status()['mode']}")
     server.serve_forever()
 
 
 if __name__ == "__main__":
     run()
-

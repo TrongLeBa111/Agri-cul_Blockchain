@@ -1,28 +1,33 @@
-.env
-.venv/
-.idea/
-.duckdb_home/
+# Python
 __pycache__/
-*.pyc
-*.rar
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
 
-dbt/.duckdb_home/
-dbt/.user.yml
-dbt/logs/
-dbt/target/
-dbt/dbt_packages/
-.dbt/
-ml/models/*.h5
-logs/*.log
-.codex-streamlit*.log
-data/local/
+# Node / Hardhat
 node_modules/
-artifacts/
 cache/
-deployments/*.local.json
+artifacts/
 
-# Dashboard dev
-dashboard/.venv312/
-dashboard/local_dev.duckdb
-check_db.py
-*.duckdb
+# Data - local ledger & backups (giu seed goc)
+data/local/
+data/sample/*.backup_*.csv
+
+# Environment
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

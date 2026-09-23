@@ -4,7 +4,7 @@ Tai lieu nay la phan viec giai doan 1 cua thanh vien quan ly va lap trinh chinh 
 
 ## 1. Muc tieu giai doan 1
 
-Trong giai doan nay chua can code day du. Muc tieu la chot cach du lieu di qua he thong va cach blockchain xac minh du lieu.
+Trong giai doan nay da co code MVP de chot cach du lieu di qua he thong va cach blockchain xac minh du lieu.
 
 Ket qua can co:
 
@@ -31,6 +31,30 @@ Dataset demo de khoi dong ma khong can MotherDuck token:
 
 ```text
 data/sample/price_records_seed.csv
+```
+
+Luu y ve du lieu cu: `dbt/models` khong phai seed data truc tiep ma la cac SQL model tao Silver/Gold tables tu source MotherDuck `bronze.wb_prices_raw` va `bronze.yf_prices_raw`. Seed CSV cua blockchain dang map theo output `gold.fact_price_daily`; khi co MotherDuck token/runtime co the export `fact_price_daily` ra CSV de thay seed demo.
+
+Export seed tu warehouse:
+
+```bash
+python scripts/export_blockchain_seed.py --limit 200
+```
+
+Neu MotherDuck token het han, co the crawl lai seed truc tiep tu nguon public:
+
+```bash
+python scripts/fetch_public_blockchain_seed.py --dry-run
+python scripts/fetch_public_blockchain_seed.py --days 90 --commodity rice coffee cocoa cotton
+```
+
+Script nay lay World Bank Pink Sheet monthly prices va Yahoo Finance futures, sau do ghi cung schema CSV cho blockchain.
+
+Neu chay qua Docker, can dam bao `.env` co `MOTHERDUCK_TOKEN` va pipeline da build xong `gold.fact_price_daily`, sau do co the chay export trong container co Python dependencies:
+
+```bash
+docker compose run --rm dbt dbt build --profiles-dir .
+docker compose run --rm ingest python scripts/export_blockchain_seed.py --limit 200
 ```
 
 ## 3. Data flow tong the
@@ -304,6 +328,14 @@ Response:
 }
 ```
 
+### Tim kiem/filter danh sach gia
+
+```text
+GET /api/prices?commodity=rice&source=WORLD_BANK&region=global
+```
+
+Tat ca query params deu optional. Backend filter theo partial text, khong phan biet hoa thuong.
+
 ### Ghi blockchain
 
 ```text
@@ -336,6 +368,36 @@ Response hop le:
   "stored_hash": "0x...",
   "verified": true,
   "blockchain_status": "VERIFIED"
+}
+```
+
+### Danh sach giao dich blockchain
+
+```text
+GET /api/transactions
+```
+
+Tra ve cac giao dich anchor va lifecycle ma backend da thuc hien trong local transaction cache/ledger.
+
+### Thong ke dashboard
+
+```text
+GET /api/stats
+```
+
+Response:
+
+```json
+{
+  "total_records": 20,
+  "total_anchored": 1,
+  "total_verified": 1,
+  "total_unanchored": 19,
+  "blockchain_backend": {
+    "mode": "local",
+    "rpc_url": "http://127.0.0.1:8545",
+    "contract_address": null
+  }
 }
 ```
 
@@ -385,21 +447,15 @@ Trang thai UI nen hien thi:
 - [x] Co data flow them moi va verify.
 - [x] Co thiet ke smart contract.
 - [x] Co API contract ban dau.
-- [ ] Kiem tra repo `agri-price-dwh` de doi chieu schema that.
-- [ ] Chot stack code: Hardhat/Ganache/testnet, backend framework va database.
-- [ ] Tao skeleton source cho smart contract va blockchain service.
+- [x] Kiem tra repo/dbt models de doi chieu schema that.
+- [x] Chot stack code MVP: Hardhat, Python stdlib HTTP API, local JSON ledger fallback.
+- [x] Tao skeleton source cho smart contract va blockchain service.
+- [x] Viet Hardhat test cho smart contract.
+- [x] Mo rong seed demo len 140 ban ghi thuc te tu World Bank Pink Sheet (2023-2026).
+- [x] Them API filter/search, transactions va stats.
 
-## 12. Viec tiep theo sau giai doan 1
-
-Sau khi nhom chot stack, phan code nen lam theo thu tu:
-
-1. Tao project smart contract.
-2. Viet `AgriPriceRegistry`.
-3. Viet test cho anchor va verify.
-4. Viet module tao canonical JSON va hash.
-5. Viet service goi contract.
-6. Tich hop vao endpoint `anchor` va `verify`.
-7. Ban giao response mau cho phan visualization.
+**Giai doan 1 HOAN THANH.** Toan bo API san sang, smart contract deploy duoc, 140 ban ghi seed that.
+Buoc tiep theo: ban giao cho thanh vien 2 (Visualization) de xay dashboard va frontend.
 
 ## 13. Code MVP da tao
 
@@ -408,10 +464,15 @@ Phan khoi dong da co cac file:
 ```text
 backend/hashing.py
 backend/local_chain.py
+backend/blockchain_service.py
 backend/app.py
 backend/demo_flow.py
 contracts/AgriPriceRegistry.sol
 data/sample/price_records_seed.csv
+scripts/export_blockchain_seed.py
+scripts/fetch_public_blockchain_seed.py
+test/AgriPriceRegistry.test.cjs
+requirements.txt
 ```
 
 Chay API local:
@@ -424,10 +485,34 @@ Endpoint quan trong:
 
 ```text
 GET  /api/prices
+GET  /api/prices?commodity=&source=&region=
 POST /api/prices/:id/anchor
 GET  /api/prices/:id/verify
 GET  /api/prices/:id/qr-payload
 GET  /verify/:id
 POST /api/prices/:id/lifecycle
 GET  /api/prices/:id/lifecycle
+GET  /api/transactions
+GET  /api/stats
+```
+
+Chay test smart contract:
+
+```bash
+npx hardhat test
+```
+
+Chay backend voi local fallback:
+
+```bash
+python -m backend.app
+```
+
+Chay backend voi Hardhat RPC that:
+
+```bash
+npx hardhat node
+npx hardhat run scripts/deploy.js --network localhost
+python -m pip install -r requirements.txt
+python -m backend.app
 ```
